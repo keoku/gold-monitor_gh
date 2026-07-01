@@ -27,4 +27,5 @@ jobs:
       - name: Run gold monitor
         env:
           FORCE_SEND: ${{ github.event.inputs.force_send == 'true' && 'true' || 'false' }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
         run: python gold_monitor.py
