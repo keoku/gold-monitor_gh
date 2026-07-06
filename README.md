@@ -217,9 +217,17 @@ RESEND_API_KEY=re_你的API_KEY
 
 ### 手动触发报告
 
-在 GitHub 仓库页面：**Actions** → **Gold Price Alert** → **Run workflow** → 勾选 "强制发送报告" → **Run workflow**
+**方式 1**（GitHub 页面）：**Actions** → **Gold Price Alert** → **Run workflow** → 勾选 "强制发送报告" → **Run workflow**
+
+**方式 2**（cron-job.org）：新建一个测试任务，Request Body 改为：
+
+```json
+{"ref": "main", "inputs": {"force_send": "true"}}
+```
 
 > 💡 首次使用需先在 Actions 页面确认启用工作流（GitHub 默认禁用新仓库的工作流）。
+>
+> ⚠️ 正式的定时任务不要加 `force_send`，否则会跳过时间去重判断。
 
 ### 自定义推送时间
 

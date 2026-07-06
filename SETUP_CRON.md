@@ -90,10 +90,26 @@ cron-job.org（精确定时）
 2. 如果返回 HTTP **204 No Content** → 配置成功
 3. 前往 `https://github.com/你的用户名/gold-monitor_gh/actions` 确认有新的 workflow run
 
-## 验证成功的标志
+### 验证成功的标志
 
 - cron-job.org 显示 Response Code: **204**
 - GitHub Actions 页面出现新的运行记录，触发方式显示为 `workflow_dispatch`
+
+### 测试时立即收到邮件
+
+正常的定时任务只在 07:30、13:00、18:00 附近发送邮件。如果你想在非报告时间测试邮件发送，可以：
+
+**方法 1**：在 GitHub Actions 页面手动触发，勾选 `force_send = true`
+
+**方法 2**：在 cron-job.org 新建一个专用测试任务，Request Body 改为：
+
+```json
+{"ref": "main", "inputs": {"force_send": "true"}}
+```
+
+点击 **Run Now** 即可强制发送邮件。
+
+> ⚠️ 正式的 3 个定时任务**不要加** `force_send`，保持 `{"ref": "main"}` 即可。否则会跳过时间去重判断，可能重复发送。
 
 ## 常见问题
 

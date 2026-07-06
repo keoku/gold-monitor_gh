@@ -274,6 +274,20 @@ def get_last_friday(dt):
 #  📰 第二部分：新闻与事件
 # ════════════════════════════════════════════════════════════════
 
+def _convert_rss_time_to_beijing(rss_time_str):
+    """将 RSS 时间字符串（GMT/UTC）转换为北京时间显示"""
+    if not rss_time_str:
+        return ""
+    try:
+        from email.utils import parsedate_to_datetime
+        dt = parsedate_to_datetime(rss_time_str)
+        beijing_tz = timezone(timedelta(hours=8))
+        dt_beijing = dt.astimezone(beijing_tz)
+        return dt_beijing.strftime("%m-%d %H:%M")
+    except Exception:
+        return rss_time_str
+
+
 def get_gold_news():
     """抓取黄金相关财经新闻"""
     news_items = []
@@ -293,11 +307,12 @@ def get_gold_news():
             source = item.find("source")
 
             if title is not None and title.text:
+                raw_date = pub_date.text if pub_date is not None else ""
                 news_items.append({
                     "title": title.text,
                     "link": link.text if link is not None else "",
                     "source": source.text if source is not None else "",
-                    "pub_date": pub_date.text if pub_date is not None else "",
+                    "pub_date": _convert_rss_time_to_beijing(raw_date),
                 })
 
             if len(news_items) >= 6:
