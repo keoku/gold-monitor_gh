@@ -31,8 +31,8 @@ INVESTED_AMOUNT = float(os.environ.get("INVESTED_AMOUNT", "0"))
 # ── 邮件配置 (通过 GitHub Secrets 保护，不在代码中暴露) ──
 EMAIL_CONFIG = {
     "resend_api_key": os.environ.get("RESEND_API_KEY", ""),
-    "sender_name": os.environ.get("SENDER_NAME", "黄金智能监控"),
-    "from_email": os.environ.get("FROM_EMAIL", "onboarding@resend.dev"),
+    "sender_name": os.environ.get("SENDER_NAME", "").strip() or "黄金智能监控",
+    "from_email": os.environ.get("FROM_EMAIL", "").strip() or "onboarding@resend.dev",
 }
 
 # ── 提醒阈值 ──
