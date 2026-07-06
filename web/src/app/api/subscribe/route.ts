@@ -12,8 +12,6 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const safeType = 'general'
-
     const githubToken = process.env.GITHUB_TOKEN
     const repoOwner = process.env.REPO_OWNER || 'ygh-wq'
     const repoName = process.env.REPO_NAME || 'gold-monitor_gh'
@@ -24,7 +22,7 @@ export async function POST(request: NextRequest) {
         `## 新订阅请求`,
         '',
         `- **邮箱**: ${email}`,
-        `- **类型**: ${safeType === 'personal' ? '完整报告（含持仓）' : '行情报告'}`,
+        `- **类型**: 行情报告`,
         `- **时间**: ${new Date().toISOString()}`,
         '',
         '---',
