@@ -597,8 +597,6 @@ def send_email(subject, html_body, recipients):
         if not to_email or not to_email.strip():
             continue
         from_addr = f"{config['sender_name']} <{config['from_email']}>"
-        print(f"📧 from: {from_addr}")
-        print(f"📧 to: {to_email}")
         payload = {
             "from": from_addr,
             "to": [to_email],
