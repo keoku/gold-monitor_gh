@@ -21,28 +21,26 @@ from urllib.error import URLError
 from urllib.parse import quote
 
 # ╔═══════════════════════════════════════════════════════════════╗
-# ║   📧 配置区 — 改这里                                            ║
+# ║   📧 配置区 — 通过 GitHub Repository Variables 配置           ║
 # ╚═══════════════════════════════════════════════════════════════╝
 
-# ── 投资信息 ──
-GOLD_GRAMS = 69             # 持有黄金克数
-INVESTED_AMOUNT = 72000     # 投入总金额 (¥)
+# ── 投资信息（通过环境变量配置，无需改代码）──
+GOLD_GRAMS = float(os.environ.get("GOLD_GRAMS", "0"))
+INVESTED_AMOUNT = float(os.environ.get("INVESTED_AMOUNT", "0"))
 
 # ── 邮件配置 (通过 GitHub Secrets 保护，不在代码中暴露) ──
 EMAIL_CONFIG = {
     "resend_api_key": os.environ.get("RESEND_API_KEY", ""),
-    "sender_name": "黄金智能监控",
-    # Resend 免费版用 onboarding@resend.dev 发件
-    # 收件人需在 Resend 后台验证邮箱后才能接收
-    "from_email": "onboarding@resend.dev",
+    "sender_name": os.environ.get("SENDER_NAME", "黄金智能监控"),
+    "from_email": os.environ.get("FROM_EMAIL", "onboarding@resend.dev"),
 }
 
 # ── 提醒阈值 ──
-DAILY_ALERT_PCT = 1.5   # 日波动超 ±1.5% 即时提醒
-WEEKLY_ALERT_PCT = 3.0  # 周波动超 ±3% 即时提醒
+DAILY_ALERT_PCT = float(os.environ.get("DAILY_ALERT_PCT", "1.5"))
+WEEKLY_ALERT_PCT = float(os.environ.get("WEEKLY_ALERT_PCT", "3.0"))
 
 # ── 每日定时报告时间点（北京时间 HH:MM）──
-DAILY_REPORT_SLOTS = ["07:30", "13:00", "18:00"]
+DAILY_REPORT_SLOTS = json.loads(os.environ.get("REPORT_SLOTS", '["07:30","13:00","18:00"]'))
 
 
 def load_recipients():
@@ -57,8 +55,12 @@ def load_recipients():
     try:
         with open("recipients.json", "r", encoding="utf-8") as f:
             data = json.load(f)
-    except Exception:
-        return {"personal": ["1137206138@qq.com"], "general": []}
+    except FileNotFoundError:
+        print("⚠️ recipients.json 不存在，请创建该文件并添加收件人")
+        return {"personal": [], "general": []}
+    except Exception as e:
+        print(f"⚠️ 读取 recipients.json 失败: {e}")
+        return {"personal": [], "general": []}
 
     # 兼容旧格式：纯数组
     if isinstance(data, list):
@@ -121,28 +123,34 @@ def get_current_gold_price():
         "success": False,
     }
 
-    # ── 数据源1: metals.live (免费) ──
+    # ── 数据源1: Swissquote 瑞讯银行 (FINMA监管上市银行，秒级实时报价) ──
     try:
-        data = http_get("https://api.metals.live/v1/spot/gold")
+        data = http_get(
+            "https://forex-data-feed.swissquote.com/public-quotes/bboquotes/instrument/XAU/USD"
+        )
         items = json.loads(data)
         if isinstance(items, list) and len(items) > 0:
-            result["price_usd_oz"] = float(items[0]["price"])
-            result["source"] = "metals.live"
+            prices_data = items[0].get("spreadProfilePrices", [])
+            if prices_data:
+                bid = float(prices_data[0]["bid"])
+                ask = float(prices_data[0]["ask"])
+                result["price_usd_oz"] = round((bid + ask) / 2, 2)
+                result["source"] = "Swissquote"
     except Exception as e:
-        print(f"[数据源1] metals.live 失败: {e}")
+        print(f"[数据源1] Swissquote 失败: {e}")
 
-    # ── 数据源2 备选: goldprice.org ──
+    # ── 数据源2: metals.live (免费聚合数据) ──
     if not result["price_usd_oz"]:
         try:
-            data = http_get("https://data-asg.goldprice.org/dbXRates/USD")
-            obj = json.loads(data)
-            if obj.get("items") and len(obj["items"]) > 0:
-                result["price_usd_oz"] = float(obj["items"][0].get("xauPrice", 0))
-                result["source"] = "goldprice.org"
+            data = http_get("https://api.metals.live/v1/spot/gold")
+            items = json.loads(data)
+            if isinstance(items, list) and len(items) > 0:
+                result["price_usd_oz"] = float(items[0]["price"])
+                result["source"] = "metals.live"
         except Exception as e:
-            print(f"[数据源2] goldprice.org 失败: {e}")
+            print(f"[数据源2] metals.live 失败: {e}")
 
-    # ── 数据源3: Yahoo Finance GC=F ──
+    # ── 数据源3: Yahoo Finance GC=F (上市金融平台) ──
     if not result["price_usd_oz"]:
         try:
             data = http_get(
@@ -156,16 +164,35 @@ def get_current_gold_price():
         except Exception as e:
             print(f"[数据源3] Yahoo Finance 失败: {e}")
 
+    # ── 数据源4 备选: goldprice.org ──
+    if not result["price_usd_oz"]:
+        try:
+            data = http_get("https://data-asg.goldprice.org/dbXRates/USD")
+            obj = json.loads(data)
+            if obj.get("items") and len(obj["items"]) > 0:
+                result["price_usd_oz"] = float(obj["items"][0].get("xauPrice", 0))
+                result["source"] = "goldprice.org"
+        except Exception as e:
+            print(f"[数据源4] goldprice.org 失败: {e}")
+
     if not result["price_usd_oz"]:
         return result
 
-    # ── 汇率: USD → CNY ──
+    # ── 汇率: USD → CNY (多数据源) ──
     try:
         data = http_get("https://api.frankfurter.app/latest?from=USD&to=CNY")
         obj = json.loads(data)
         result["usd_cny_rate"] = obj["rates"]["CNY"]
     except Exception as e:
-        print(f"汇率获取失败: {e}")
+        print(f"汇率源1 (frankfurter) 失败: {e}")
+
+    if not result["usd_cny_rate"]:
+        try:
+            data = http_get("https://api.exchangerate-api.com/v4/latest/USD")
+            obj = json.loads(data)
+            result["usd_cny_rate"] = obj["rates"]["CNY"]
+        except Exception as e:
+            print(f"汇率源2 (exchangerate-api) 失败: {e}")
 
     if not result["usd_cny_rate"]:
         result["usd_cny_rate"] = 7.25  # 降级近似值
@@ -356,11 +383,11 @@ def get_event_calendar():
 
 def get_upcoming_events():
     """获取未来 30 天内的事件"""
-    today = datetime.now()
+    today = datetime.now(timezone(timedelta(hours=8)))
     events = []
     for evt in get_event_calendar():
         evt_date = datetime.strptime(evt["date"], "%Y-%m-%d")
-        days_away = (evt_date - today).days
+        days_away = (evt_date - today.replace(tzinfo=None)).days
         if 0 <= days_away <= 30:
             evt["days_away"] = days_away
             events.append(evt)
@@ -695,35 +722,86 @@ def main():
         if "18:00" not in state["last_daily_slots"]:
             state["last_daily_slots"]["18:00"] = old_date
 
+    SLOT_WINDOW_MINUTES = 45  # slot 过后超过此时间不再补发
+
     for slot in DAILY_REPORT_SLOTS:
         slot_h, slot_m = int(slot.split(":")[0]), int(slot.split(":")[1])
-        slot_passed = (hour > slot_h) or (hour == slot_h and minute >= slot_m)
+        current_minutes = hour * 60 + minute
+        slot_minutes = slot_h * 60 + slot_m
+        minutes_past_slot = current_minutes - slot_minutes
+
+        slot_in_window = 0 <= minutes_past_slot <= SLOT_WINDOW_MINUTES
         slot_not_sent_today = state["last_daily_slots"].get(slot) != today_str
-        if slot_passed and slot_not_sent_today:
+
+        if slot_in_window and slot_not_sent_today:
             should_send = True
             alert_reason = f"⏰ 每日{slot}定时报告"
             state["last_daily_slots"][slot] = today_str
             save_state(state)
-            break  # 每轮只发一份，同一轮不会命中多个 slot
+            break
 
-    # 涨跌幅超限即时提醒
+    # 涨跌幅超限即时提醒（阶梯式冷却：同方向需跨越更高阈值档才会再次通知）
+    # 阈值档位：1.5% → 3% → 5% → 8%，每跨一档发一次
+    VOLATILITY_TIERS = [DAILY_ALERT_PCT, 3.0, 5.0, 8.0]
+    WEEKLY_VOLATILITY_TIERS = [WEEKLY_ALERT_PCT, 5.0, 8.0, 12.0]
+
+    if "last_volatility_alerts" not in state:
+        state["last_volatility_alerts"] = {}
+
     day_change_abs = 0
     week_change_abs = 0
+    day_direction = ""
     if prev_close:
         day_change_abs = abs((prices["price_cny_gram"] - prev_close) / prev_close * 100)
+        day_direction = "up" if prices["price_cny_gram"] >= prev_close else "down"
     if last_friday_close:
         week_change_abs = abs((prices["price_cny_gram"] - last_friday_close) / last_friday_close * 100)
 
+    def get_current_tier(change_abs, tiers):
+        """返回当前波动对应的最高阈值档位"""
+        reached = 0
+        for t in tiers:
+            if change_abs >= t:
+                reached = t
+        return reached
+
     if day_change_abs >= DAILY_ALERT_PCT:
-        should_send = True
-        direction = "📈 急涨" if prices["price_cny_gram"] >= prev_close else "📉 急跌"
-        alert_reason += (", " if alert_reason else "") + \
-                        f"{direction} 日波动 {day_change_abs:.2f}% (超{DAILY_ALERT_PCT}%阈值)"
+        alert_key = f"day_{day_direction}"
+        current_tier = get_current_tier(day_change_abs, VOLATILITY_TIERS)
+        last_record = state["last_volatility_alerts"].get(alert_key, {})
+        last_date = last_record.get("date", "") if isinstance(last_record, dict) else last_record
+        last_tier = last_record.get("tier", 0) if isinstance(last_record, dict) else 0
+
+        if last_date != today_str or current_tier > last_tier:
+            should_send = True
+            direction = "📈 急涨" if day_direction == "up" else "📉 急跌"
+            alert_reason += (", " if alert_reason else "") + \
+                            f"{direction} 日波动 {day_change_abs:.2f}% (超{current_tier}%阈值)"
+            state["last_volatility_alerts"][alert_key] = {
+                "date": today_str, "tier": current_tier
+            }
+            save_state(state)
+        else:
+            print(f"⏭️ 日波动预警 ({day_direction} {current_tier}%) 已发送，等待更高档位")
 
     if week_change_abs >= WEEKLY_ALERT_PCT:
-        should_send = True
-        alert_reason += (", " if alert_reason else "") + \
-                        f"周波动 {week_change_abs:.2f}% (超{WEEKLY_ALERT_PCT}%阈值)"
+        week_direction = "up" if prices["price_cny_gram"] >= last_friday_close else "down"
+        alert_key = f"week_{week_direction}"
+        current_tier = get_current_tier(week_change_abs, WEEKLY_VOLATILITY_TIERS)
+        last_record = state["last_volatility_alerts"].get(alert_key, {})
+        last_date = last_record.get("date", "") if isinstance(last_record, dict) else last_record
+        last_tier = last_record.get("tier", 0) if isinstance(last_record, dict) else 0
+
+        if last_date != today_str or current_tier > last_tier:
+            should_send = True
+            alert_reason += (", " if alert_reason else "") + \
+                            f"周波动 {week_change_abs:.2f}% (超{current_tier}%阈值)"
+            state["last_volatility_alerts"][alert_key] = {
+                "date": today_str, "tier": current_tier
+            }
+            save_state(state)
+        else:
+            print(f"⏭️ 周波动预警 ({week_direction} {current_tier}%) 已发送，等待更高档位")
 
     # 通过环境变量强制发送 (GitHub Actions 手动触发时)
     if os.environ.get("FORCE_SEND", "").lower() == "true":

@@ -4,17 +4,19 @@ permissions:
   contents: write
 
 on:
-  schedule:
-    # 北京时间 07:00-07:45 (UTC 23:00-23:45)
-    - cron: "*/15 23 * * *"
-    # 北京时间 08:00-23:00 (UTC 00:00-15:00)
-    - cron: "*/15 0-15 * * *"
+  # 外部定时服务精确触发（主要方式，通过 cron-job.org 调用 GitHub API）
   workflow_dispatch:
     inputs:
       force_send:
         description: "强制发送报告"
         type: boolean
         default: false
+  # 保留 schedule 作为备份（避开整点，减少延迟）
+  schedule:
+    # 北京时间 07:00-07:45 (UTC 23:00-23:45)，避开整点
+    - cron: "7,22,37,52 23 * * *"
+    # 北京时间 08:00-23:00 (UTC 00:00-15:00)，避开整点
+    - cron: "7,22,37,52 0-15 * * *"
 
 jobs:
   check-gold-price:
@@ -24,6 +26,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -34,14 +38,21 @@ jobs:
         env:
           FORCE_SEND: ${{ github.event.inputs.force_send == 'true' && 'true' || 'false' }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          GOLD_GRAMS: ${{ vars.GOLD_GRAMS }}
+          INVESTED_AMOUNT: ${{ vars.INVESTED_AMOUNT }}
+          DAILY_ALERT_PCT: ${{ vars.DAILY_ALERT_PCT }}
+          WEEKLY_ALERT_PCT: ${{ vars.WEEKLY_ALERT_PCT }}
+          REPORT_SLOTS: ${{ vars.REPORT_SLOTS }}
+          SENDER_NAME: ${{ vars.SENDER_NAME }}
+          FROM_EMAIL: ${{ vars.FROM_EMAIL }}
         run: python gold_monitor.py
 
       - name: Commit state file
-        if: github.event_name == 'schedule'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config --local user.email "actions@github.com"
           git config --local user.name "GitHub Actions"
+          git pull --rebase origin main || true
           git add state.json
-          git diff --staged --quiet || (git commit -m "Update last daily report date [skip ci]" && git push)
+          git diff --staged --quiet || (git commit -m "Update state [skip ci]" && git push)
