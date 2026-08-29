@@ -7,8 +7,8 @@
   },
   "last_volatility_alerts": {
     "day_down": {
-      "date": "2026-08-19",
-      "tier": 1.5
+      "date": "2026-08-29",
+      "tier": 3.0
     },
     "day_up": {
       "date": "2026-08-21",
@@ -16,6 +16,10 @@
     },
     "week_up": {
       "date": "2026-08-20",
+      "tier": 3.0
+    },
+    "week_down": {
+      "date": "2026-08-29",
       "tier": 3.0
     }
   }
